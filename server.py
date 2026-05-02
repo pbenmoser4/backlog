@@ -68,24 +68,26 @@ def gh_json(*args: str) -> list | dict:
 
 
 def repo(r: str) -> str:
-    """Resolve repo: explicit arg → BACKLOG_REPO env var → gh auto-detect from cwd."""
-    resolved = r or DEFAULT_REPO
-    if not resolved:
-        try:
-            result = subprocess.run(
-                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-                capture_output=True, text=True,
-            )
-            if result.returncode == 0:
-                resolved = result.stdout.strip()
-        except Exception:
-            pass
-    if not resolved:
-        raise ValueError(
-            "No repo specified. Pass repo='owner/name', set BACKLOG_REPO env var, "
-            "or run from within a git repo."
+    """Resolve repo: explicit arg → gh auto-detect from cwd → BACKLOG_REPO env var."""
+    if r:
+        return r
+    # Try to detect from current working directory
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            capture_output=True, text=True,
         )
-    return resolved
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    # Fall back to global default
+    if DEFAULT_REPO:
+        return DEFAULT_REPO
+    raise ValueError(
+        "No repo specified. Pass repo='owner/name', set BACKLOG_REPO env var, "
+        "or run from within a git repo."
+    )
 
 
 def format_issue(issue: dict) -> str:

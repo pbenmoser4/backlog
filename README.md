@@ -62,10 +62,10 @@ The server is registered in `~/.claude.json` with an environment variable pointi
 Every tool has an optional `repo_name` parameter. The server resolves which repo to use in this order:
 
 1. **`repo_name` argument** — passed directly in the tool call
-2. **`BACKLOG_REPO` env var** — set at server startup via `~/.claude.json`
-3. **Auto-detect from cwd** — runs `gh repo view` in the current working directory; works automatically when Claude is open inside a git repo with a GitHub remote
+2. **Auto-detect from cwd** — runs `gh repo view` in the current working directory; works automatically when Claude is open inside a git repo with a GitHub remote
+3. **`BACKLOG_REPO` env var** — the global default set in `~/.claude.json`, used as a fallback when no repo can be inferred from context
 
-This means the server will naturally target whichever GitHub repo you have open in your editor, with no extra configuration needed per project.
+This means the server will naturally target whichever GitHub repo you have open in your editor, falling back to the configured default only when necessary.
 
 ## Labels
 
