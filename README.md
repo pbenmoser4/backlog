@@ -57,7 +57,15 @@ The server is registered in `~/.claude.json` with an environment variable pointi
 }
 ```
 
-You can override the default repo on any tool call by passing `repo_name: "owner/repo"`.
+### Repo resolution
+
+Every tool has an optional `repo_name` parameter. The server resolves which repo to use in this order:
+
+1. **`repo_name` argument** — passed directly in the tool call
+2. **`BACKLOG_REPO` env var** — set at server startup via `~/.claude.json`
+3. **Auto-detect from cwd** — runs `gh repo view` in the current working directory; works automatically when Claude is open inside a git repo with a GitHub remote
+
+This means the server will naturally target whichever GitHub repo you have open in your editor, with no extra configuration needed per project.
 
 ## Labels
 
