@@ -625,7 +625,163 @@ def save_research_output(
     return f"Research output written to {output_path}"
 
 
+# ── Setup CLI ─────────────────────────────────────────────────────────────────
+
+import pathlib
+
+_LABELS = [
+    # Status
+    ("backlog",         "0075ca", "New item, not yet started"),
+    ("in-progress",     "e4e669", "Currently being worked on"),
+    ("blocked",         "d93f0b", "Waiting on something"),
+    # Type
+    ("feature",         "a2eeef", "New functionality"),
+    ("bug",             "d73a4a", "Something broken or incorrect"),
+    ("design",          "7057ff", "Design decision needed before coding"),
+    ("research",        "006b75", "Exploratory spike"),
+    ("question",        "cc317c", "Open question needing an answer"),
+    ("spike",           "f9d0c4", "Formal research spike — plan mode + web research required"),
+    # Priority
+    ("priority:high",   "b60205", "High priority"),
+    ("priority:medium", "e99695", "Medium priority"),
+    ("priority:low",    "c5def5", "Low priority"),
+]
+
+_CLAUDE_JSON = pathlib.Path.home() / ".claude.json"
+
+
+def _ok(msg):   print(f"  \033[32m✓\033[0m {msg}")
+def _warn(msg): print(f"  \033[33m!\033[0m {msg}")
+def _info(msg): print(f"  \033[34m→\033[0m {msg}")
+def _fail(msg): print(f"  \033[31m✗\033[0m {msg}"); sys.exit(1)
+
+
+def _run(args: list[str]) -> tuple[int, str, str]:
+    r = subprocess.run(args, capture_output=True, text=True)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def _check_gh() -> None:
+    code, _, _ = _run(["gh", "--version"])
+    if code != 0:
+        _fail("gh CLI not found. Install from https://cli.github.com/")
+    code, out, err = _run(["gh", "auth", "status"])
+    if code != 0:
+        _fail("gh CLI not authenticated. Run: gh auth login")
+    for line in (out + err).splitlines():
+        if "Logged in to" in line and "account" in line:
+            parts = line.split("account")
+            if len(parts) > 1:
+                username = parts[1].strip().split()[0]
+                _ok(f"gh authenticated as {username}")
+                return
+    _ok("gh authenticated")
+
+
+def _create_labels(target_repo: str) -> None:
+    created = skipped = 0
+    for name, color, description in _LABELS:
+        code, _, err = _run([
+            "gh", "label", "create", name,
+            "--repo", target_repo,
+            "--color", color,
+            "--description", description,
+            "--force",
+        ])
+        if code == 0:
+            created += 1
+        else:
+            _warn(f"Could not create label '{name}': {err[:80]}")
+            skipped += 1
+    _ok(f"Labels: {created} created/updated, {skipped} skipped")
+
+
+def _patch_settings(target_repo: str) -> None:
+    if not _CLAUDE_JSON.exists():
+        _warn("~/.claude.json not found — skipping MCP registration")
+        return
+    with open(_CLAUDE_JSON) as f:
+        config = json.load(f)
+    mcp_servers = config.setdefault("mcpServers", {})
+    if "backlog" in mcp_servers:
+        existing = mcp_servers["backlog"].get("env", {}).get("BACKLOG_REPO", "")
+        if existing == target_repo:
+            _ok("backlog MCP server already configured in ~/.claude.json")
+            return
+        _info(f"Updating backlog MCP server (was: {existing}, now: {target_repo})")
+    mcp_servers["backlog"] = {
+        "type": "stdio",
+        "command": "uvx",
+        "args": ["backlog-mcp"],
+        "env": {"BACKLOG_REPO": target_repo},
+    }
+    with open(_CLAUDE_JSON, "w") as f:
+        json.dump(config, f, indent=2)
+    _ok(f"backlog MCP server added to ~/.claude.json → {target_repo}")
+
+
+def _print_snippet(target_repo: str) -> None:
+    snippet = f"""## Backlog Management
+
+Use the backlog MCP tools to track work items throughout this session.
+
+**Backlog items** (`create_backlog_item`):
+- Feature, bug, design, research, or question items that won't be done right now
+
+**Research spikes** (`create_spike`):
+- Formal investigations requiring plan mode and web research before implementation
+- Call `check_research` before starting to surface prior findings
+- Call `save_research_output` to persist findings to research/ in this repo
+
+**Workflow:**
+- `start_working_on` — when beginning work on an item
+- `add_progress_note` — record decisions, blockers, or partial progress
+- `complete_backlog_item` — when done, with a resolution summary
+
+Default repo: `{target_repo}`"""
+    print("\n" + "─" * 60)
+    print("Add this to your project's CLAUDE.md:\n")
+    print(snippet)
+    print("─" * 60)
+
+
+def _run_setup(repo_arg: str) -> None:
+    if repo_arg:
+        target_repo = repo_arg
+    else:
+        print("\nNo repo specified. Enter the GitHub repo to use for backlog tracking.")
+        target_repo = input("Repo (owner/name): ").strip()
+        if not target_repo or "/" not in target_repo:
+            _fail("Invalid repo format. Use owner/name (e.g. myuser/myproject)")
+
+    print(f"\n\033[1mbacklog-mcp --setup\033[0m → {target_repo}\n")
+
+    print("Checking prerequisites:")
+    _check_gh()
+
+    print("\nCreating GitHub labels:")
+    _create_labels(target_repo)
+
+    print("\nConfiguring MCP server:")
+    _patch_settings(target_repo)
+
+    _print_snippet(target_repo)
+
+    print("\n\033[1mDone.\033[0m")
+    print("Restart Claude Code to pick up the new MCP server.")
+    print("Then use create_backlog_item, list_backlog_items, etc. in any session.\n")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def main():
+    """Entry point: 'backlog-mcp --setup [owner/repo]' to configure, or MCP server mode."""
+    args = sys.argv[1:]
+    if args and args[0] == "--setup":
+        _run_setup(args[1] if len(args) > 1 else "")
+    else:
+        mcp.run()
+
+
 if __name__ == "__main__":
-    mcp.run()
+    main()

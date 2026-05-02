@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backlog-mcp"
+version = "0.1.0"
+description = "GitHub Issues-backed backlog MCP server for Claude Code"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+backlog-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server"]

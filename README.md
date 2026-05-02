@@ -24,36 +24,36 @@ All GitHub operations go through the `gh` CLI — no personal access tokens to m
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth login`)
 
-## Setup
+## Installation
 
 ```bash
-# Configure for a specific repo
-python3 setup.py owner/repo
-
-# Or run interactively and enter the repo when prompted
-python3 setup.py
+uvx backlog-mcp --setup owner/repo
 ```
 
-The setup script:
+That's it. `uvx` fetches the package from PyPI on demand — no cloning, no `pip install`. The setup command:
+
 1. Verifies `gh` is installed and authenticated
-2. Creates the required labels in your GitHub repo (status, type, priority)
+2. Creates the required labels in your GitHub repo
 3. Registers the MCP server in `~/.claude.json`
 4. Prints a CLAUDE.md snippet to add to your project
 
+Restart Claude Code after setup to pick up the server.
+
 ## Configuration
 
-The server is registered in `~/.claude.json` with an environment variable pointing at your repo:
+Setup registers the server in `~/.claude.json` using `uvx`:
 
 ```json
 {
   "mcpServers": {
     "backlog": {
       "type": "stdio",
-      "command": "python3",
-      "args": ["/path/to/server.py"],
+      "command": "uvx",
+      "args": ["backlog-mcp"],
       "env": { "BACKLOG_REPO": "owner/repo" }
     }
   }
