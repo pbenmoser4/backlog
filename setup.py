@@ -36,6 +36,7 @@ LABELS = [
     ("design",        "7057ff", "Design decision needed before coding"),
     ("research",      "006b75", "Exploratory spike"),
     ("question",      "cc317c", "Open question needing an answer"),
+    ("spike",         "f9d0c4", "Formal research spike — plan mode + web research required"),
     # Priority
     ("priority:high", "b60205", "High priority"),
     ("priority:medium","e99695","Medium priority"),

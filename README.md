@@ -4,7 +4,7 @@ An MCP server that wraps GitHub Issues as a lightweight backlog for Claude Code.
 
 ## How it works
 
-The server exposes 8 tools to Claude via the [Model Context Protocol](https://modelcontextprotocol.io/):
+The server exposes 11 tools to Claude via the [Model Context Protocol](https://modelcontextprotocol.io/):
 
 | Tool | Description |
 |------|-------------|
@@ -16,6 +16,9 @@ The server exposes 8 tools to Claude via the [Model Context Protocol](https://mo
 | `add_progress_note` | Add a comment to track progress or log a decision |
 | `complete_backlog_item` | Close an issue with a resolution summary |
 | `reopen_backlog_item` | Reopen a closed issue with rationale |
+| `create_spike` | Open a formal research spike |
+| `check_research` | Surface prior research before starting an investigation |
+| `save_research_output` | Persist spike findings to `research/` in the working repo |
 
 All GitHub operations go through the `gh` CLI — no personal access tokens to manage.
 
@@ -75,4 +78,53 @@ Setup creates three label groups in your repo:
 |-------|--------|
 | **Status** | `backlog`, `in-progress`, `blocked` |
 | **Type** | `feature`, `bug`, `design`, `research`, `question` |
+| **Modifier** | `spike` — stacks with `research` to mark formal investigations |
 | **Priority** | `priority:high`, `priority:medium`, `priority:low` |
+
+## Research Spikes
+
+A research spike is a formal investigation item that signals to the agent picking it up: enter plan mode, do web research, and produce a written output before any implementation begins.
+
+### Creating a spike
+
+```
+create_spike(
+  title="Evaluate vector DB options for embedding search",
+  goal="Determine which vector database best fits our latency and cost requirements",
+  research_questions="- What are the top open-source options?\n- How do they compare on query latency at 1M vectors?\n- What are the operational costs?",
+  success_criteria="Output doc must include a comparison table and a recommendation with rationale",
+  priority="high"
+)
+```
+
+The issue is created with both `research` and `spike` labels. The body includes a structured template (Goal, Background, Research Questions, Success Criteria, Output path).
+
+### Agent workflow for spikes
+
+When an agent calls `start_working_on` on a spike, it receives explicit instructions to:
+
+1. Enter plan mode
+2. Call `check_research` to find any prior work on the topic
+3. Use `WebSearch`/`WebFetch` to answer the research questions
+4. Call `save_research_output` with the synthesized findings
+5. Call `complete_backlog_item` to close the issue
+
+### Research output files
+
+`save_research_output` writes findings to `research/<issue-number>-<slug>.md` in the current working repository (determined via `git rev-parse --show-toplevel`). It also:
+
+- Creates the `research/` directory if it doesn't exist
+- Adds `research/` to `.gitignore` automatically so outputs are never accidentally committed
+- Posts a comment on the GitHub issue linking to the file
+
+### Checking prior research
+
+```
+check_research(topic="vector database")
+```
+
+Searches two sources:
+1. Local `research/*.md` files — keyword match against filename and first 500 chars
+2. GitHub spike issues (open and closed) matching the topic
+
+Use this before creating a new spike or before implementing something that may have been researched previously.
