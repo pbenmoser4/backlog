@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "backlog-mcp"
+name = "gh-backlog-mcp"
 version = "0.1.0"
 description = "GitHub Issues-backed backlog MCP server for Claude Code"
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-backlog-mcp = "server:main"
+gh-backlog-mcp = "server:main"
 
 [tool.setuptools]
 py-modules = ["server"]

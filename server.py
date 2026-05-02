@@ -712,7 +712,7 @@ def _patch_settings(target_repo: str) -> None:
     mcp_servers["backlog"] = {
         "type": "stdio",
         "command": "uvx",
-        "args": ["backlog-mcp"],
+        "args": ["gh-backlog-mcp"],
         "env": {"BACKLOG_REPO": target_repo},
     }
     with open(_CLAUDE_JSON, "w") as f:
@@ -754,7 +754,7 @@ def _run_setup(repo_arg: str) -> None:
         if not target_repo or "/" not in target_repo:
             _fail("Invalid repo format. Use owner/name (e.g. myuser/myproject)")
 
-    print(f"\n\033[1mbacklog-mcp --setup\033[0m → {target_repo}\n")
+    print(f"\n\033[1mgh-backlog-mcp --setup\033[0m → {target_repo}\n")
 
     print("Checking prerequisites:")
     _check_gh()
@@ -775,7 +775,7 @@ def _run_setup(repo_arg: str) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    """Entry point: 'backlog-mcp --setup [owner/repo]' to configure, or MCP server mode."""
+    """Entry point: 'gh-backlog-mcp --setup [owner/repo]' to configure, or MCP server mode."""
     args = sys.argv[1:]
     if args and args[0] == "--setup":
         _run_setup(args[1] if len(args) > 1 else "")

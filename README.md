@@ -31,7 +31,7 @@ All GitHub operations go through the `gh` CLI — no personal access tokens to m
 ## Installation
 
 ```bash
-uvx backlog-mcp --setup owner/repo
+uvx gh-backlog-mcp --setup owner/repo
 ```
 
 That's it. `uvx` fetches the package from PyPI on demand — no cloning, no `pip install`. The setup command:
@@ -53,7 +53,7 @@ Setup registers the server in `~/.claude.json` using `uvx`:
     "backlog": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["backlog-mcp"],
+      "args": ["gh-backlog-mcp"],
       "env": { "BACKLOG_REPO": "owner/repo" }
     }
   }
