@@ -38,7 +38,9 @@ mcp = FastMCP(
     "backlog",
     instructions=(
         "Backlog management via GitHub Issues. "
-        f"Default repo: {DEFAULT_REPO or '(set BACKLOG_REPO env var)'}. "
+        "Repo resolution order: explicit repo_name param → auto-detect from current working directory (via gh) → "
+        f"BACKLOG_REPO env var fallback ({DEFAULT_REPO or 'unset'}). "
+        "In most sessions the repo is auto-detected from cwd — do NOT assume the env var fallback is used. "
         "Use create_backlog_item when you identify future work. "
         "Use create_spike for formal research investigations that require plan mode and web research before implementation. "
         "Use check_research before starting any research task to surface prior findings. "
@@ -52,6 +54,43 @@ mcp = FastMCP(
 
 VALID_TYPES = {"feature", "bug", "design", "research", "question"}
 VALID_PRIORITIES = {"high", "medium", "low"}
+
+_LABELS = [
+    # Status
+    ("backlog",         "0075ca", "New item, not yet started"),
+    ("in-progress",     "e4e669", "Currently being worked on"),
+    ("blocked",         "d93f0b", "Waiting on something"),
+    # Type
+    ("feature",         "a2eeef", "New functionality"),
+    ("bug",             "d73a4a", "Something broken or incorrect"),
+    ("design",          "7057ff", "Design decision needed before coding"),
+    ("research",        "006b75", "Exploratory spike"),
+    ("question",        "cc317c", "Open question needing an answer"),
+    ("spike",           "f9d0c4", "Formal research spike — plan mode + web research required"),
+    # Priority
+    ("priority:high",   "b60205", "High priority"),
+    ("priority:medium", "e99695", "Medium priority"),
+    ("priority:low",    "c5def5", "Low priority"),
+]
+
+# Track repos where labels have already been ensured this session
+_labels_ensured: set[str] = set()
+
+
+def _ensure_labels(target_repo: str) -> None:
+    """Create any missing labels in the target repo (once per session per repo)."""
+    if target_repo in _labels_ensured:
+        return
+    for name, color, description in _LABELS:
+        subprocess.run(
+            ["gh", "label", "create", name,
+             "--repo", target_repo,
+             "--color", color,
+             "--description", description,
+             "--force"],
+            capture_output=True, text=True,
+        )
+    _labels_ensured.add(target_repo)
 
 # ── GitHub CLI helpers ────────────────────────────────────────────────────────
 
@@ -152,6 +191,7 @@ def create_backlog_item(
     Returns the issue URL and number.
     """
     r = repo(repo_name)
+    _ensure_labels(r)
     if type not in VALID_TYPES:
         type = "feature"
     if priority not in VALID_PRIORITIES:
@@ -448,6 +488,7 @@ def create_spike(
     Returns the issue number, URL, and expected output file path.
     """
     r = repo(repo_name)
+    _ensure_labels(r)
     if priority not in VALID_PRIORITIES:
         priority = "medium"
 
@@ -628,24 +669,6 @@ def save_research_output(
 # ── Setup CLI ─────────────────────────────────────────────────────────────────
 
 import pathlib
-
-_LABELS = [
-    # Status
-    ("backlog",         "0075ca", "New item, not yet started"),
-    ("in-progress",     "e4e669", "Currently being worked on"),
-    ("blocked",         "d93f0b", "Waiting on something"),
-    # Type
-    ("feature",         "a2eeef", "New functionality"),
-    ("bug",             "d73a4a", "Something broken or incorrect"),
-    ("design",          "7057ff", "Design decision needed before coding"),
-    ("research",        "006b75", "Exploratory spike"),
-    ("question",        "cc317c", "Open question needing an answer"),
-    ("spike",           "f9d0c4", "Formal research spike — plan mode + web research required"),
-    # Priority
-    ("priority:high",   "b60205", "High priority"),
-    ("priority:medium", "e99695", "Medium priority"),
-    ("priority:low",    "c5def5", "Low priority"),
-]
 
 _CLAUDE_JSON = pathlib.Path.home() / ".claude.json"
 
