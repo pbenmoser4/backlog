@@ -32,17 +32,16 @@ All GitHub operations go through the `gh` CLI — no personal access tokens to m
 ## Installation
 
 ```bash
-uvx gh-backlog-mcp --setup owner/repo
+uvx gh-backlog-mcp --setup
 ```
 
 That's it. `uvx` fetches the package from PyPI on demand — no cloning, no `pip install`. The setup command:
 
 1. Verifies `gh` is installed and authenticated
-2. Creates the required labels in your GitHub repo
-3. Registers the MCP server in `~/.claude.json`
-4. Prints a CLAUDE.md snippet to add to your project
+2. Registers the MCP server in `~/.claude.json`
+3. Prints a CLAUDE.md snippet to add to your project
 
-Restart Claude Code after setup to pick up the server.
+Labels are created automatically on first use in each repo. Restart Claude Code after setup to pick up the server.
 
 ## Configuration
 
@@ -54,26 +53,17 @@ Setup registers the server in `~/.claude.json` using `uvx`:
     "backlog": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["gh-backlog-mcp"],
-      "env": { "BACKLOG_REPO": "owner/repo" }
+      "args": ["gh-backlog-mcp"]
     }
   }
 }
 ```
 
-### Repo resolution
-
-Every tool has an optional `repo_name` parameter. The server resolves which repo to use in this order:
-
-1. **`repo_name` argument** — passed directly in the tool call
-2. **Auto-detect from cwd** — runs `gh repo view` in the current working directory; works automatically when Claude is open inside a git repo with a GitHub remote
-3. **`BACKLOG_REPO` env var** — the global default set in `~/.claude.json`, used as a fallback when no repo can be inferred from context
-
-This means the server will naturally target whichever GitHub repo you have open in your editor, falling back to the configured default only when necessary.
+The repo is auto-detected from the current working directory via `gh repo view`. The server targets whichever GitHub repo you have open — no configuration needed.
 
 ## Labels
 
-Setup creates three label groups in your repo:
+The server auto-creates these label groups on first use in each repo:
 
 | Group | Values |
 |-------|--------|

@@ -3,7 +3,7 @@
 Backlog MCP Server — GitHub Issues wrapper for agent-native backlog management.
 
 Uses the gh CLI for all GitHub operations (no token management required).
-Configure default repo via BACKLOG_REPO env var (owner/name format).
+Repo is auto-detected from the current working directory via gh.
 
 Tools:
   create_backlog_item      — open a new backlog item
@@ -33,15 +33,11 @@ from mcp.server.fastmcp import FastMCP
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-DEFAULT_REPO = os.environ.get("BACKLOG_REPO", "")
-
 mcp = FastMCP(
     "backlog",
     instructions=(
         "Backlog management via GitHub Issues. "
-        "Repo resolution order: explicit repo_name param → auto-detect from current working directory (via gh) → "
-        f"BACKLOG_REPO env var fallback ({DEFAULT_REPO or 'unset'}). "
-        "In most sessions the repo is auto-detected from cwd — do NOT assume the env var fallback is used. "
+        "Repo is auto-detected from the current working directory via gh. "
         "Branch scoping: issues are automatically scoped to the current git branch via "
         "branch:X labels. Pass branch='all' to see/create items across all branches. "
         "Use create_backlog_item when you identify future work. "
@@ -189,11 +185,8 @@ def _project_root() -> str:
     return os.getcwd()
 
 
-def repo(r: str) -> str:
-    """Resolve repo: explicit arg → gh auto-detect from cwd → BACKLOG_REPO env var."""
-    if r:
-        return r
-    # Try to detect from current working directory
+def repo() -> str:
+    """Auto-detect repo from cwd via gh CLI."""
     try:
         result = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
@@ -203,12 +196,9 @@ def repo(r: str) -> str:
             return result.stdout.strip()
     except Exception:
         pass
-    # Fall back to global default
-    if DEFAULT_REPO:
-        return DEFAULT_REPO
     raise ValueError(
-        "No repo specified. Pass repo='owner/name', set BACKLOG_REPO env var, "
-        "or run from within a git repo."
+        "Could not detect GitHub repo from current directory. "
+        "Run from within a git repo with a GitHub remote."
     )
 
 
@@ -238,7 +228,6 @@ def create_backlog_item(
     type: str = "feature",
     priority: str = "medium",
     branch: str = "",
-    repo_name: str = "",
 ) -> str:
     """
     Create a new backlog item as a GitHub Issue.
@@ -249,11 +238,10 @@ def create_backlog_item(
         type: feature | bug | design | research | question
         priority: high | medium | low
         branch: Branch scope (auto-detects current git branch; "all" for no scope)
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns the issue URL and number.
     """
-    r = repo(repo_name)
+    r = repo()
     _ensure_labels(r)
     if type not in VALID_TYPES:
         type = "feature"
@@ -290,7 +278,6 @@ def list_backlog_items(
     spikes_only: bool = False,
     branch: str = "",
     limit: int = 25,
-    repo_name: str = "",
 ) -> str:
     """
     List backlog items from GitHub Issues.
@@ -302,11 +289,10 @@ def list_backlog_items(
         spikes_only: if True, return only research spike items
         branch: Branch scope (auto-detects current git branch; "all" for all branches)
         limit: max results (default 25)
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns a formatted list of matching issues.
     """
-    r = repo(repo_name)
+    r = repo()
 
     args = [
         "issue", "list", "--repo", r,
@@ -351,17 +337,16 @@ def list_backlog_items(
 
 
 @mcp.tool()
-def get_backlog_item(issue_number: int, repo_name: str = "") -> str:
+def get_backlog_item(issue_number: int) -> str:
     """
     Fetch a single backlog item with its full description and comment history.
 
     Args:
         issue_number: GitHub issue number
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns full issue detail including all comments.
     """
-    r = repo(repo_name)
+    r = repo()
     issue = gh_json(
         "issue", "view", str(issue_number), "--repo", r,
         "--json", "number,title,body,labels,state,url,createdAt,comments",
@@ -393,7 +378,6 @@ def get_backlog_item(issue_number: int, repo_name: str = "") -> str:
 def add_progress_note(
     issue_number: int,
     note: str,
-    repo_name: str = "",
 ) -> str:
     """
     Add a progress note or execution log entry to a backlog item.
@@ -404,15 +388,14 @@ def add_progress_note(
     Args:
         issue_number: GitHub issue number
         note: The progress note or update
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
     """
-    r = repo(repo_name)
+    r = repo()
     gh("issue", "comment", str(issue_number), "--repo", r, "--body", note)
     return f"Progress note added to #{issue_number}."
 
 
 @mcp.tool()
-def start_working_on(issue_number: int, repo_name: str = "") -> str:
+def start_working_on(issue_number: int) -> str:
     """
     Mark a backlog item as in-progress.
 
@@ -424,9 +407,8 @@ def start_working_on(issue_number: int, repo_name: str = "") -> str:
 
     Args:
         issue_number: GitHub issue number
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
     """
-    r = repo(repo_name)
+    r = repo()
     gh(
         "issue", "edit", str(issue_number), "--repo", r,
         "--add-label", "in-progress",
@@ -451,7 +433,6 @@ def start_working_on(issue_number: int, repo_name: str = "") -> str:
 def complete_backlog_item(
     issue_number: int,
     resolution: str,
-    repo_name: str = "",
 ) -> str:
     """
     Mark a backlog item as complete and close it.
@@ -465,9 +446,8 @@ def complete_backlog_item(
     Args:
         issue_number: GitHub issue number
         resolution: Summary of what was done and how it was resolved
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
     """
-    r = repo(repo_name)
+    r = repo()
     gh("issue", "comment", str(issue_number), "--repo", r, "--body", resolution)
     gh("issue", "close", str(issue_number), "--repo", r)
     return f"#{issue_number} closed with resolution."
@@ -477,7 +457,6 @@ def complete_backlog_item(
 def reopen_backlog_item(
     issue_number: int,
     reason: str = "",
-    repo_name: str = "",
 ) -> str:
     """
     Reopen a closed backlog item.
@@ -485,9 +464,8 @@ def reopen_backlog_item(
     Args:
         issue_number: GitHub issue number
         reason: Optional reason for reopening
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
     """
-    r = repo(repo_name)
+    r = repo()
     if reason:
         gh("issue", "comment", str(issue_number), "--repo", r, "--body", reason)
     gh("issue", "reopen", str(issue_number), "--repo", r)
@@ -503,7 +481,6 @@ def reopen_backlog_item(
 def migrate_branch_issues(
     from_branch: str,
     to_branch: str = "",
-    repo_name: str = "",
 ) -> str:
     """
     Migrate all open issues from one branch scope to another.
@@ -515,11 +492,10 @@ def migrate_branch_issues(
     Args:
         from_branch: Source branch name (e.g., "feature/auth-rewrite")
         to_branch: Target branch name (auto-detects current git branch if empty)
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns summary of migrated issues.
     """
-    r = repo(repo_name)
+    r = repo()
 
     resolved_to = resolve_branch(to_branch)
     if resolved_to is None:
@@ -566,7 +542,6 @@ def migrate_branch_issues(
 def search_backlog(
     query: str,
     branch: str = "",
-    repo_name: str = "",
     limit: int = 20,
 ) -> str:
     """
@@ -575,10 +550,9 @@ def search_backlog(
     Args:
         query: Search terms
         branch: Branch scope (auto-detects current git branch; "all" for all branches)
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
         limit: Max results (default 20)
     """
-    r = repo(repo_name)
+    r = repo()
     # GitHub search syntax: terms + repo scoping
     search_query = f"{query} repo:{r}"
 
@@ -613,7 +587,6 @@ def create_spike(
     scope_limits: str = "",
     priority: str = "medium",
     branch: str = "",
-    repo_name: str = "",
 ) -> str:
     """
     Create a formal research spike backlog item.
@@ -634,11 +607,10 @@ def create_spike(
         scope_limits: What is explicitly out of scope
         priority: high | medium | low
         branch: Branch scope (auto-detects current git branch; "all" for no scope)
-        repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns the issue number, URL, and expected output file path.
     """
-    r = repo(repo_name)
+    r = repo()
     _ensure_labels(r)
     if priority not in VALID_PRIORITIES:
         priority = "medium"
@@ -688,10 +660,7 @@ def create_spike(
 
 
 @mcp.tool()
-def check_research(
-    topic: str,
-    repo_name: str = "",
-) -> str:
+def check_research(topic: str) -> str:
     """
     Check whether research has already been done on a topic.
 
@@ -702,7 +671,6 @@ def check_research(
 
     Args:
         topic: Keywords describing what you're researching
-        repo_name: owner/name for backlog repo (falls back to BACKLOG_REPO env var)
 
     Returns existing research file summaries and spike issue matches, or a
     message indicating no prior research was found.
@@ -734,7 +702,7 @@ def check_research(
 
     # 2. Search GitHub spike issues
     try:
-        r = repo(repo_name)
+        r = repo()
         search_query = f"{topic} repo:{r} label:spike"
         issues = gh_json(
             "search", "issues",
@@ -759,7 +727,6 @@ def check_research(
 def save_research_output(
     issue_number: int,
     content: str,
-    repo_name: str = "",
 ) -> str:
     """
     Save the output of a completed research spike to the research/ directory.
@@ -773,11 +740,10 @@ def save_research_output(
     Args:
         issue_number: The spike issue number
         content: Full markdown content of the research output
-        repo_name: owner/name for backlog repo (falls back to BACKLOG_REPO env var)
 
     Returns the path where the file was written.
     """
-    r = repo(repo_name)
+    r = repo()
 
     # Fetch issue title to build the filename
     issue = gh_json(
@@ -857,25 +823,8 @@ def _check_gh() -> None:
     _ok("gh authenticated")
 
 
-def _create_labels(target_repo: str) -> None:
-    created = skipped = 0
-    for name, color, description in _LABELS:
-        code, _, err = _run([
-            "gh", "label", "create", name,
-            "--repo", target_repo,
-            "--color", color,
-            "--description", description,
-            "--force",
-        ])
-        if code == 0:
-            created += 1
-        else:
-            _warn(f"Could not create label '{name}': {err[:80]}")
-            skipped += 1
-    _ok(f"Labels: {created} created/updated, {skipped} skipped")
 
-
-def _patch_settings(target_repo: str) -> None:
+def _patch_settings() -> None:
     if not _CLAUDE_JSON.exists():
         _warn("~/.claude.json not found — skipping MCP registration")
         return
@@ -883,26 +832,23 @@ def _patch_settings(target_repo: str) -> None:
         config = json.load(f)
     mcp_servers = config.setdefault("mcpServers", {})
     if "backlog" in mcp_servers:
-        existing = mcp_servers["backlog"].get("env", {}).get("BACKLOG_REPO", "")
-        if existing == target_repo:
-            _ok("backlog MCP server already configured in ~/.claude.json")
-            return
-        _info(f"Updating backlog MCP server (was: {existing}, now: {target_repo})")
+        _ok("backlog MCP server already configured in ~/.claude.json")
+        return
     mcp_servers["backlog"] = {
         "type": "stdio",
         "command": "uvx",
         "args": ["gh-backlog-mcp"],
-        "env": {"BACKLOG_REPO": target_repo},
     }
     with open(_CLAUDE_JSON, "w") as f:
         json.dump(config, f, indent=2)
-    _ok(f"backlog MCP server added to ~/.claude.json → {target_repo}")
+    _ok("backlog MCP server added to ~/.claude.json")
 
 
-def _print_snippet(target_repo: str) -> None:
-    snippet = f"""## Backlog Management
+def _print_snippet() -> None:
+    snippet = """## Backlog Management
 
 Use the backlog MCP tools to track work items throughout this session.
+Repo is auto-detected from the current working directory.
 
 **Backlog items** (`create_backlog_item`):
 - Feature, bug, design, research, or question items that won't be done right now
@@ -920,49 +866,35 @@ Use the backlog MCP tools to track work items throughout this session.
 **Branch scoping:**
 - Issues are auto-scoped to the current git branch via `branch:X` labels
 - Pass `branch="all"` to list/create items across all branches
-- `migrate_branch_issues` — transfer issues between branches after merge
-
-Default repo: `{target_repo}`"""
+- `migrate_branch_issues` — transfer issues between branches after merge"""
     print("\n" + "─" * 60)
     print("Add this to your project's CLAUDE.md:\n")
     print(snippet)
     print("─" * 60)
 
 
-def _run_setup(repo_arg: str) -> None:
-    if repo_arg:
-        target_repo = repo_arg
-    else:
-        print("\nNo repo specified. Enter the GitHub repo to use for backlog tracking.")
-        target_repo = input("Repo (owner/name): ").strip()
-        if not target_repo or "/" not in target_repo:
-            _fail("Invalid repo format. Use owner/name (e.g. myuser/myproject)")
-
-    print(f"\n\033[1mgh-backlog-mcp --setup\033[0m → {target_repo}\n")
+def _run_setup() -> None:
+    print("\n\033[1mgh-backlog-mcp --setup\033[0m\n")
 
     print("Checking prerequisites:")
     _check_gh()
 
-    print("\nCreating GitHub labels:")
-    _create_labels(target_repo)
-
     print("\nConfiguring MCP server:")
-    _patch_settings(target_repo)
+    _patch_settings()
 
-    _print_snippet(target_repo)
+    _print_snippet()
 
     print("\n\033[1mDone.\033[0m")
     print("Restart Claude Code to pick up the new MCP server.")
-    print("Then use create_backlog_item, list_backlog_items, etc. in any session.\n")
+    print("Labels are created automatically on first use in each repo.\n")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    """Entry point: 'gh-backlog-mcp --setup [owner/repo]' to configure, or MCP server mode."""
-    args = sys.argv[1:]
-    if args and args[0] == "--setup":
-        _run_setup(args[1] if len(args) > 1 else "")
+    """Entry point: 'gh-backlog-mcp --setup' to configure, or MCP server mode."""
+    if "--setup" in sys.argv:
+        _run_setup()
     else:
         mcp.run()
 
