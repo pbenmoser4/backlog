@@ -6,17 +6,18 @@ Uses the gh CLI for all GitHub operations (no token management required).
 Configure default repo via BACKLOG_REPO env var (owner/name format).
 
 Tools:
-  create_backlog_item   — open a new backlog item
-  list_backlog_items    — query the backlog
-  get_backlog_item      — fetch a single item with full context
-  add_progress_note     — append a comment (execution log)
-  start_working_on      — move item to in-progress
-  complete_backlog_item — close with resolution summary
-  reopen_backlog_item   — reopen a closed item
-  search_backlog        — full-text search across items
-  create_spike          — open a formal research spike
-  check_research        — surface prior research before starting work
-  save_research_output  — persist spike findings to research/ directory
+  create_backlog_item      — open a new backlog item
+  list_backlog_items       — query the backlog
+  get_backlog_item         — fetch a single item with full context
+  add_progress_note        — append a comment (execution log)
+  start_working_on         — move item to in-progress
+  complete_backlog_item    — close with resolution summary
+  reopen_backlog_item      — reopen a closed item
+  search_backlog           — full-text search across items
+  migrate_branch_issues    — transfer issues between branch scopes
+  create_spike             — open a formal research spike
+  check_research           — surface prior research before starting work
+  save_research_output     — persist spike findings to research/ directory
 """
 import json
 import logging
@@ -41,12 +42,15 @@ mcp = FastMCP(
         "Repo resolution order: explicit repo_name param → auto-detect from current working directory (via gh) → "
         f"BACKLOG_REPO env var fallback ({DEFAULT_REPO or 'unset'}). "
         "In most sessions the repo is auto-detected from cwd — do NOT assume the env var fallback is used. "
+        "Branch scoping: issues are automatically scoped to the current git branch via "
+        "branch:X labels. Pass branch='all' to see/create items across all branches. "
         "Use create_backlog_item when you identify future work. "
         "Use create_spike for formal research investigations that require plan mode and web research before implementation. "
         "Use check_research before starting any research task to surface prior findings. "
         "Use start_working_on when beginning a task. "
         "Use save_research_output to persist spike findings to the research/ directory. "
-        "Use complete_backlog_item when done, with a resolution summary."
+        "Use complete_backlog_item when done, with a resolution summary. "
+        "Use migrate_branch_issues after merging a feature branch to transfer its TODOs."
     ),
 )
 
@@ -91,6 +95,59 @@ def _ensure_labels(target_repo: str) -> None:
             capture_output=True, text=True,
         )
     _labels_ensured.add(target_repo)
+
+
+# ── Branch scoping ───────────────────────────────────────────────────────────
+
+BRANCH_LABEL_COLOR = "1d76db"
+
+_branch_labels_ensured: set[tuple[str, str]] = set()
+
+
+def _branch_label(branch_name: str) -> str:
+    """Return the GitHub label name for a branch."""
+    return f"branch:{branch_name}"
+
+
+def _ensure_branch_label(target_repo: str, branch_name: str) -> None:
+    """Create the branch label if it doesn't exist yet (once per session)."""
+    key = (target_repo, branch_name)
+    if key in _branch_labels_ensured:
+        return
+    subprocess.run(
+        ["gh", "label", "create", _branch_label(branch_name),
+         "--repo", target_repo,
+         "--color", BRANCH_LABEL_COLOR,
+         "--description", f"Branch scope: {branch_name}",
+         "--force"],
+        capture_output=True, text=True,
+    )
+    _branch_labels_ensured.add(key)
+
+
+def resolve_branch(b: str) -> str | None:
+    """Resolve branch: explicit arg → auto-detect from git → None.
+
+    Returns None when branch scoping should be skipped (branch="all" or
+    detection fails). Returns the branch name string otherwise.
+    """
+    if b == "all":
+        return None
+    if b:
+        return b
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            name = result.stdout.strip()
+            if name and name != "HEAD":
+                return name
+    except Exception:
+        pass
+    return None
+
 
 # ── GitHub CLI helpers ────────────────────────────────────────────────────────
 
@@ -157,11 +214,15 @@ def repo(r: str) -> str:
 
 def format_issue(issue: dict) -> str:
     """Format a single issue dict as readable text."""
-    labels = [l["name"] for l in issue.get("labels", [])]
+    all_labels = [l["name"] for l in issue.get("labels", [])]
+    branch_labels = [l.removeprefix("branch:") for l in all_labels if l.startswith("branch:")]
+    labels = [l for l in all_labels if not l.startswith("branch:")]
     state = issue.get("state", "")
+    branch_line = f"  Branch: {', '.join(branch_labels)}\n" if branch_labels else ""
     return (
         f"#{issue['number']} [{state}] {issue['title']}\n"
         f"  Labels: {', '.join(labels) or 'none'}\n"
+        f"{branch_line}"
         f"  URL: {issue.get('url', '')}\n"
         f"  Created: {issue.get('createdAt', '')[:10]}"
     )
@@ -176,6 +237,7 @@ def create_backlog_item(
     body: str,
     type: str = "feature",
     priority: str = "medium",
+    branch: str = "",
     repo_name: str = "",
 ) -> str:
     """
@@ -186,6 +248,7 @@ def create_backlog_item(
         body: Full description — what needs to be done and why
         type: feature | bug | design | research | question
         priority: high | medium | low
+        branch: Branch scope (auto-detects current git branch; "all" for no scope)
         repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns the issue URL and number.
@@ -198,6 +261,12 @@ def create_backlog_item(
         priority = "medium"
 
     labels = ["backlog", type, f"priority:{priority}"]
+
+    resolved = resolve_branch(branch)
+    if resolved is not None:
+        _ensure_branch_label(r, resolved)
+        labels.append(_branch_label(resolved))
+
     label_args: list[str] = []
     for label in labels:
         label_args += ["--label", label]
@@ -219,6 +288,7 @@ def list_backlog_items(
     type: str = "",
     priority: str = "",
     spikes_only: bool = False,
+    branch: str = "",
     limit: int = 25,
     repo_name: str = "",
 ) -> str:
@@ -230,6 +300,7 @@ def list_backlog_items(
         type: feature | bug | design | research | question (optional filter)
         priority: high | medium | low (optional filter)
         spikes_only: if True, return only research spike items
+        branch: Branch scope (auto-detects current git branch; "all" for all branches)
         limit: max results (default 25)
         repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
@@ -263,6 +334,11 @@ def list_backlog_items(
 
     if priority:
         args += ["--label", f"priority:{priority}"]
+
+    # Branch filter
+    resolved = resolve_branch(branch)
+    if resolved is not None:
+        args += ["--label", _branch_label(resolved)]
 
     issues = gh_json(*args)
     if not issues:
@@ -424,18 +500,91 @@ def reopen_backlog_item(
 
 
 @mcp.tool()
-def search_backlog(query: str, repo_name: str = "", limit: int = 20) -> str:
+def migrate_branch_issues(
+    from_branch: str,
+    to_branch: str = "",
+    repo_name: str = "",
+) -> str:
+    """
+    Migrate all open issues from one branch scope to another.
+
+    Use this after merging a feature branch to transfer its TODOs to the
+    target branch (e.g., from "feature/auth" to "main"). The to_branch
+    defaults to the current git branch, which is natural after a merge.
+
+    Args:
+        from_branch: Source branch name (e.g., "feature/auth-rewrite")
+        to_branch: Target branch name (auto-detects current git branch if empty)
+        repo_name: owner/name (falls back to BACKLOG_REPO env var)
+
+    Returns summary of migrated issues.
+    """
+    r = repo(repo_name)
+
+    resolved_to = resolve_branch(to_branch)
+    if resolved_to is None:
+        raise ValueError(
+            "Cannot determine target branch. Pass to_branch explicitly "
+            "or run from within a git repo."
+        )
+
+    _ensure_branch_label(r, resolved_to)
+
+    from_label = _branch_label(from_branch)
+    to_label = _branch_label(resolved_to)
+
+    issues = gh_json(
+        "issue", "list",
+        "--repo", r,
+        "--state", "open",
+        "--label", from_label,
+        "--limit", "100",
+        "--json", "number,title",
+    )
+
+    if not issues:
+        return f"No open issues found with label '{from_label}'."
+
+    migrated = []
+    for issue in issues:
+        num = str(issue["number"])
+        gh(
+            "issue", "edit", num,
+            "--repo", r,
+            "--add-label", to_label,
+            "--remove-label", from_label,
+        )
+        migrated.append(f"  #{issue['number']}: {issue['title']}")
+
+    return (
+        f"Migrated {len(migrated)} issue(s) from branch:{from_branch} "
+        f"to branch:{resolved_to}:\n" + "\n".join(migrated)
+    )
+
+
+@mcp.tool()
+def search_backlog(
+    query: str,
+    branch: str = "",
+    repo_name: str = "",
+    limit: int = 20,
+) -> str:
     """
     Search backlog items by keyword across titles and bodies.
 
     Args:
         query: Search terms
+        branch: Branch scope (auto-detects current git branch; "all" for all branches)
         repo_name: owner/name (falls back to BACKLOG_REPO env var)
         limit: Max results (default 20)
     """
     r = repo(repo_name)
     # GitHub search syntax: terms + repo scoping
     search_query = f"{query} repo:{r}"
+
+    resolved = resolve_branch(branch)
+    if resolved is not None:
+        search_query += f' label:"branch:{resolved}"'
     issues = gh_json(
         "search", "issues",
         search_query,
@@ -463,6 +612,7 @@ def create_spike(
     background: str = "",
     scope_limits: str = "",
     priority: str = "medium",
+    branch: str = "",
     repo_name: str = "",
 ) -> str:
     """
@@ -483,6 +633,7 @@ def create_spike(
         background: Why is this spike needed? What triggered it?
         scope_limits: What is explicitly out of scope
         priority: high | medium | low
+        branch: Branch scope (auto-detects current git branch; "all" for no scope)
         repo_name: owner/name (falls back to BACKLOG_REPO env var)
 
     Returns the issue number, URL, and expected output file path.
@@ -507,6 +658,11 @@ def create_spike(
     body = "\n\n".join(body_parts)
 
     labels = ["backlog", "research", "spike", f"priority:{priority}"]
+
+    resolved = resolve_branch(branch)
+    if resolved is not None:
+        _ensure_branch_label(r, resolved)
+        labels.append(_branch_label(resolved))
     label_args: list[str] = []
     for label in labels:
         label_args += ["--label", label]
@@ -760,6 +916,11 @@ Use the backlog MCP tools to track work items throughout this session.
 - `start_working_on` — when beginning work on an item
 - `add_progress_note` — record decisions, blockers, or partial progress
 - `complete_backlog_item` — when done, with a resolution summary
+
+**Branch scoping:**
+- Issues are auto-scoped to the current git branch via `branch:X` labels
+- Pass `branch="all"` to list/create items across all branches
+- `migrate_branch_issues` — transfer issues between branches after merge
 
 Default repo: `{target_repo}`"""
     print("\n" + "─" * 60)
