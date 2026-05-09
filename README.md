@@ -4,7 +4,7 @@ An MCP server that wraps GitHub Issues as a lightweight backlog for Claude Code.
 
 ## How it works
 
-The server exposes 11 tools to Claude via the [Model Context Protocol](https://modelcontextprotocol.io/):
+The server exposes 12 tools to Claude via the [Model Context Protocol](https://modelcontextprotocol.io/):
 
 | Tool | Description |
 |------|-------------|
@@ -16,6 +16,7 @@ The server exposes 11 tools to Claude via the [Model Context Protocol](https://m
 | `add_progress_note` | Add a comment to track progress or log a decision |
 | `complete_backlog_item` | Close an issue with a resolution summary |
 | `reopen_backlog_item` | Reopen a closed issue with rationale |
+| `migrate_branch_issues` | Transfer issues from one branch scope to another |
 | `create_spike` | Open a formal research spike |
 | `check_research` | Surface prior research before starting an investigation |
 | `save_research_output` | Persist spike findings to `research/` in the working repo |
@@ -80,6 +81,25 @@ Setup creates three label groups in your repo:
 | **Type** | `feature`, `bug`, `design`, `research`, `question` |
 | **Modifier** | `spike` — stacks with `research` to mark formal investigations |
 | **Priority** | `priority:high`, `priority:medium`, `priority:low` |
+
+## Branch Scoping
+
+Issues are automatically scoped to the current git branch via `branch:X` labels. When you create or list backlog items, the server detects your current branch and applies the corresponding label.
+
+- **Auto-detect** — `create_backlog_item`, `list_backlog_items`, `search_backlog`, and `create_spike` all default to the current git branch
+- **Cross-branch view** — pass `branch="all"` to any of these tools to see/create items across all branches
+- **Explicit branch** — pass `branch="feature/foo"` to target a specific branch regardless of what you have checked out
+- **Graceful degradation** — if branch detection fails (not in a git repo, detached HEAD), scoping is silently skipped
+
+### After merging a branch
+
+Use `migrate_branch_issues` to transfer open issues from a merged feature branch to the target branch:
+
+```
+migrate_branch_issues(from_branch="feature/auth-rewrite")
+```
+
+The `to_branch` defaults to the current git branch, so after merging `feature/auth-rewrite` into `main`, just call this from `main` and the issues will be relabeled automatically.
 
 ## Research Spikes
 
